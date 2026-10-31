@@ -1,5 +1,6 @@
 import Foundation
 
+/// 使用可控时钟验证首次保存、无变更保存、真实修改、时钟回拨及失败写入的时间规则。
 @main
 struct TimestampChecks {
     @MainActor static func main() async throws {
@@ -7,6 +8,7 @@ struct TimestampChecks {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = EncryptedVault(url: root.appendingPathComponent("vault.cmemo"))
+        // 不使用 sleep 或实际系统时钟，让所有时间断言可重复且无需等待。
         var now = Date(timeIntervalSince1970: 1_800_000_000)
         let store = MemoStore(vault: vault, clock: { now })
         let password = "timestamp-check-123456789"
@@ -16,6 +18,7 @@ struct TimestampChecks {
         try store.save(drafted)
         let first = store.memos[0]
         precondition(first.createdAt == now && first.updatedAt == now, "Creation means first successful save, not editor opening")
+        // 无变化保存连密文都不重写，避免每次生成新 nonce 后掩盖无效保存。
         let firstFile = try Data(contentsOf: vault.url)
         now = now.addingTimeInterval(120)
         try store.save(first)
@@ -34,13 +37,14 @@ struct TimestampChecks {
         edit = store.memos[0]; edit.imageData = Data([1, 2, 3])
         try store.save(edit)
         precondition(store.memos[0].updatedAt == now)
+        // 模拟设备校时向后调整；本地更新时间仍应单调递增，但这不是跨设备冲突测试。
         let beforeClockRollback = store.memos[0]
         now = now.addingTimeInterval(-1000)
         edit = beforeClockRollback; edit.title = "回拨后编辑"
         try store.save(edit)
         let afterRollback = store.memos[0]
         precondition(afterRollback.createdAt == first.createdAt && afterRollback.updatedAt > beforeClockRollback.updatedAt)
-        // Incoming stale editor timestamps cannot replace original creation metadata.
+        // 旧编辑器提交的草稿时间不能覆盖首次成功保存的创建时间。
         var stale = drafted; stale.title = "旧编辑器提交"; stale.tags = ["另一个标签"]
         try store.save(stale)
         precondition(store.memos[0].createdAt == first.createdAt)
@@ -56,7 +60,7 @@ struct TimestampChecks {
         store.lock(); try await store.unlock(password: password)
         precondition(store.memos[0] == beforeFailure, "Encrypted reopen must preserve timestamps")
         precondition(store.memos[0].createdAt.timeIntervalSince1970 == first.createdAt.timeIntervalSince1970)
-        // Existing v1 dates retain their exact encoding and values; no migration or duplicate fields.
+        // v1 日期编码与数值必须保持兼容，不借本次调整重置旧时间或引入重复字段。
         let legacy = try JSONEncoder().encode(first)
         let decoded = try JSONDecoder().decode(Memo.self, from: legacy)
         precondition(decoded.createdAt == first.createdAt && decoded.updatedAt == first.updatedAt)

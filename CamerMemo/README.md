@@ -1,5 +1,7 @@
 # CamerMemo
 
+[程序结构说明](ARCHITECTURE.md) · [产品设计](PRODUCT_SPEC.md)
+
 iPhone / iOS 17+ / SwiftUI，无第三方依赖。
 
 ## 运行

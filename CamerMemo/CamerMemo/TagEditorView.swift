@@ -1,8 +1,10 @@
 import SwiftUI
 
+/// 文字编辑与图片校对共用的标签控件；父视图持有草稿，控件只驱动编辑和自动生成。
 struct TagEditorView: View {
     @Bindable var draft: TagDraft
     let input: TagInput
+    // 重试序号允许正文未变化时重新请求；paused 明确保留用户切换到手动操作的意图。
     @State private var retry = 0
     @State private var paused = false
     var body: some View {
@@ -41,7 +43,9 @@ struct TagEditorView: View {
             Button(L10n.text(.regenerateTags)) { paused = false; retry += 1 }
                 .font(.caption).disabled(draft.isGenerating || input.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        // 在 Form 单元格中隔离各按钮动作，避免整行同时触发添加和重新生成。
         .buttonStyle(.borderless)
+        // 输入快照变化自动取消旧任务；等待一秒防抖，暂停状态需显式重新生成才恢复。
         .task(id: RefreshID(input: input, retry: retry, paused: paused)) {
             draft.prepare(for: input)
             guard !paused else { draft.cancel(); return }
@@ -51,9 +55,11 @@ struct TagEditorView: View {
         }
         .onDisappear { draft.cancel() }
     }
+    /// 三种变化都需要重建任务身份，手动标签选择本身不应触发再次生成。
     private struct RefreshID: Equatable { let input: TagInput; let retry: Int; let paused: Bool }
 }
 
+/// 列表与详情的只读标签展示，不在浏览过程中触发 AI 或修改文档。
 struct TagBadges: View {
     let tags: [String]
     var body: some View {

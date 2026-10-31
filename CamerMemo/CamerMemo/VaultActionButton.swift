@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Shared geometry and styling for the unlock and lock actions.
+/// 开锁和闭锁共用相同尺寸/视觉；动作与本地化无障碍名称由调用页面提供。
 struct VaultActionButton: View {
+    // 48 点按钮同时用于开始页和导航工具栏，避免各页面自行缩放造成尺寸不一致。
     static let diameter: CGFloat = 48
     let symbol: String
     let title: String
@@ -29,6 +30,7 @@ struct VaultActionButton: View {
     }
 }
 
+/// 禁用态与按压反馈集中实现，并尊重系统“减少动态效果”设置。
 private struct VaultCircleButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,6 +43,7 @@ private struct VaultCircleButtonStyle: ButtonStyle {
     }
 }
 
+// 并排预览开锁、闭锁、忙碌状态，便于检查一致性；不连接真实资料库。
 #Preview("Vault controls") {
     HStack(spacing: 24) {
         VaultActionButton(symbol: "lock.open.fill", title: L10n.text(.unlock)) {}

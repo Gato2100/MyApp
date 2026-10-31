@@ -1,9 +1,11 @@
 import AppKit
 import ImageIO
 
+/// 在内存绘制合成样本并调用真实 Vision，验证英中日识别、空图、无效数据与取消。
 @main
 struct OCRChecks {
     @MainActor static func main() async throws {
+        // 样本由程序绘制，无需照片库或相机权限，也不接触真实照片。
         let context = CGContext(data: nil, width: 1600, height: 900, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(NSColor.white.cgColor)
@@ -32,6 +34,7 @@ struct OCRChecks {
         context.fill(CGRect(x: 0, y: 0, width: 1600, height: 900))
         do { _ = try await TextRecognitionService.recognize(context.makeImage()!, language: .english); fatalError("Blank image produced text") }
         catch PhotoImportError.noText {}
+        // 显式语言分别验证中文与日文模型；仅检查关键片段，避免依赖微小标点差异。
         for (sampleText, language, required) in [
             ("相机 文字备忘录", RecognitionLanguage.chinese, "文字"),
             ("新宿で写真を撮影", RecognitionLanguage.japanese, "写真")

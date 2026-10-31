@@ -1,9 +1,11 @@
 import Foundation
 
+/// 注入确定性生成器验证标签交互，不依赖 Apple Intelligence 的可用性或输出随机性。
 @main
 struct TagChecks {
     @MainActor static func main() async throws {
         precondition(TagRules.unique([" #旅行 ", "旅行", "ＡＩ", "ai", " "]) == ["旅行", "ＡＩ"])
+        // 以可控结果验证三项上限与默认勾选，不对真实生成内容做脆弱的字面断言。
         let draft = TagDraft(existing: ["保留标签"])
         let input = TagInput(title: "相机", body: "周五到新宿购买镜头")
         draft.prepare(for: input)
@@ -24,11 +26,13 @@ struct TagChecks {
         draft.remove("保留标签")
         precondition(!draft.selected.contains("保留标签"))
         precondition(draft.selected(for: TagInput(title: "已变更", body: "新内容")) == draft.manual)
+        // 重新建立编辑会话，模拟保存后再打开，明确拒选不应被默认重新加入。
         let restored = TagDraft(existing: draft.selected, rejectedKeys: draft.excluded.sorted())
         restored.prepare(for: input)
         await restored.generate(for: input) { _ in ["购物", "保留标签", "新标签"] }
         precondition(!restored.selected.contains("购物") && !restored.selected.contains("保留标签"))
         precondition(restored.selected.contains("新标签"))
+        // 人工延迟旧请求并先完成新请求，确定性复现乱序回调。
         let stale = TagDraft()
         var continuation: CheckedContinuation<[String], Never>?
         let oldTask = Task { await stale.generate(for: input) { _ in await withCheckedContinuation { continuation = $0 } } }
@@ -39,6 +43,7 @@ struct TagChecks {
         continuation?.resume(returning: ["旧结果"])
         await oldTask.value
         precondition(stale.selected == ["新结果"], "Late result must not overwrite current content")
+        // 即使生成器不主动响应取消，令牌和 Task 状态也必须阻止迟到结果发布。
         var cancelledContinuation: CheckedContinuation<[String], Never>?
         let cancelled = Task { await stale.generate(for: newer) { _ in await withCheckedContinuation { cancelledContinuation = $0 } } }
         while cancelledContinuation == nil { await Task.yield() }

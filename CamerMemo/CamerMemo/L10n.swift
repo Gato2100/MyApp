@@ -1,8 +1,9 @@
 import Foundation
 
-/// All app-authored display text lives in Localizable.xcstrings.
-/// Bundle resolution follows the system's preferred app language, falling back to zh-Hans.
+/// 资源遵循系统的 App 首选语言，未匹配时回退到开发语言简体中文。
+/// 本地化访问入口；翻译正文统一维护在 Localizable.xcstrings，技术标识不参与翻译。
 enum L10n {
+    /// 用枚举约束资源 key；新增界面文案时需同步补齐资源文件中的各语言条目。
     enum Key: String, CaseIterable {
         case createdTime
         case updatedTime
@@ -114,17 +115,18 @@ enum L10n {
         case sourcePhoto
     }
 
+    /// 默认使用 App 首选语言；可注入语言 bundle，供验证程序检查实际打包的翻译。
     static func text(_ key: Key, bundle: Bundle = .main) -> String {
         bundle.localizedString(forKey: key.rawValue, value: nil, table: "Localizable")
     }
 
+    /// 目前模板仅接收一个字符串参数，数量在调用端先格式化；译文需保留 %@ 占位符。
     static func format(_ key: Key, _ argument: String, bundle: Bundle = .main) -> String {
         String(format: text(key, bundle: bundle), locale: Locale.current, argument)
     }
 
+    /// 仅展示应用可控的错误文案，不直接向界面暴露带内部路径的系统错误。
     static func errorDescription(_ error: Error) -> String {
-        // Framework-generated errors may contain file paths and have inconsistent language.
-        // Present app-owned localized copy; do not expose internal diagnostics as UI text.
         if let error = error as? VaultError {
             return error.errorDescription ?? text(.storageFailure)
         }

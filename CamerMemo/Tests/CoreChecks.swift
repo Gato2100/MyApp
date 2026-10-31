@@ -1,8 +1,10 @@
 import Foundation
 
+/// 加密容器与文档模型回归：用临时资料库验证字节往返、兼容性、搜索和错误输入，不读取用户数据。
 @main
 struct CoreChecks {
     static func main() throws {
+        // 每次运行使用唯一临时目录；退出时只清理由本程序创建的测试文件。
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -16,6 +18,7 @@ struct CoreChecks {
         memo.imageData = attachment
         memo.source = .camera
         memo.originalRecognizedText = "原始识别文字"
+        // 模拟尚未引入标签/附件字段的旧文档，验证可选字段不会破坏解码。
         var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(memo)) as! [String: Any]
         legacy.removeValue(forKey: "tags"); legacy.removeValue(forKey: "rejectedTagKeys"); legacy.removeValue(forKey: "imageData"); legacy.removeValue(forKey: "source"); legacy.removeValue(forKey: "originalRecognizedText")
         let oldMemo = try JSONDecoder().decode(Memo.self, from: JSONSerialization.data(withJSONObject: legacy))
@@ -25,6 +28,7 @@ struct CoreChecks {
         assert(restored == [memo])
         assert(restored.first?.imageData == attachment)
         assert(restored.first?.tags == memo.tags && restored.first?.rejectedTagKeys == memo.rejectedTagKeys)
+        // 加密文件不应包含正文、标签或附件的明文/Base64；随后复用快照检查失败未覆盖。
         let original = try Data(contentsOf: vault.url)
         assert(!String(decoding: original, as: UTF8.self).contains("索尼镜头"))
         assert(!String(decoding: original, as: UTF8.self).contains("旅行"))
@@ -59,6 +63,7 @@ struct CoreChecks {
         let resealed = try Data(contentsOf: vault.url)
         assert(resealed != fresh, "Each encryption must use a new nonce")
         do { _ = try vault.create(password: password); fatalError("Existing vault overwritten") } catch {}
+        // 分别篡改认证密文与截断容器，验证解锁拒绝损坏内容。
         var json = try JSONSerialization.jsonObject(with: fresh) as! [String: Any]
         var payload = Data(base64Encoded: json["payload"] as! String)!
         payload[payload.startIndex + 15] ^= 1

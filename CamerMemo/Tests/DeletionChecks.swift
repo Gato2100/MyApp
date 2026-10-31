@@ -1,5 +1,6 @@
 import Foundation
 
+/// 批量删除回归：覆盖选择边界、取消不写入、失败时状态保留及删除后的重新解锁。
 @main
 struct DeletionChecks {
     @MainActor static func main() async throws {
@@ -9,6 +10,7 @@ struct DeletionChecks {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = EncryptedVault(url: folder.appendingPathComponent("vault.cmemo"))
+        // 使用注入路径隔离生产文件，并通过公开存储入口执行创建、删除和锁定。
         let store = MemoStore(vault: vault)
         let password = "delete-check-123456789"
         try await store.unlock(password: password)
@@ -22,6 +24,7 @@ struct DeletionChecks {
         remaining = store.memos.first { $0.id == remaining.id }!
         let before = store.memos
         let beforeFile = try Data(contentsOf: vault.url)
+        // 先验证纯选择状态；任何选择、取消或未知 ID 都不应触发文件写入。
         var selection = MemoSelection()
         selection.toggle(first.id)
         precondition(selection.ids.isEmpty)
@@ -33,7 +36,7 @@ struct DeletionChecks {
         precondition(selection.ids == [first.id, remaining.id])
         selection.selectAll([first.id, remaining.id]); precondition(selection.ids.isEmpty)
         selection.finish(); precondition(!selection.isSelecting && selection.ids.isEmpty)
-        // Merely selecting/cancelling does not write or delete anything.
+        // 选择和取消仅改变界面状态，不允许写盘或删除文档。
         precondition(store.memos == before)
         let afterCancel = try Data(contentsOf: vault.url)
         precondition(afterCancel == beforeFile)
@@ -41,7 +44,7 @@ struct DeletionChecks {
         try store.delete(ids: [UUID()])
         let afterNoOp = try Data(contentsOf: vault.url)
         precondition(afterNoOp == beforeFile)
-        // Replace the parent with a regular test file to force a deterministic write failure.
+        // 仅在临时测试目录内，用普通文件阻断父路径，确定性模拟写入失败。
         try FileManager.default.moveItem(at: folder, to: moved)
         try Data("test write blocker".utf8).write(to: folder)
         do { try store.delete(ids: [first.id, second.id]); fatalError("Write unexpectedly succeeded") } catch {}
@@ -50,6 +53,7 @@ struct DeletionChecks {
         precondition(preserved == beforeFile, "Failed deletion must preserve the previous vault")
         try FileManager.default.removeItem(at: folder)
         try FileManager.default.moveItem(at: moved, to: folder)
+        // 恢复可写路径后批量删除，验证未选中的文档、附件与共享标签完整保留。
         try store.delete(ids: [first.id, second.id])
         precondition(store.memos == [remaining])
         precondition(Memo.search(store.memos, query: "待删除标签", scope: .tags).isEmpty)

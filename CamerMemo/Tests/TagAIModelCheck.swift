@@ -1,5 +1,6 @@
 import Foundation
 
+/// 可选的真实设备端模型检查；模型不可用时明确跳过，不能把跳过当成生成成功。
 @main
 struct TagAIModelCheck {
     static func main() async throws {

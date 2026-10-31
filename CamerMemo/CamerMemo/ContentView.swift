@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// 根视图拥有唯一的资料库会话，依据解锁状态切换认证页与内容页。
 struct ContentView: View {
     @State private var store = MemoStore()
     @Environment(\.scenePhase) private var scenePhase
@@ -8,23 +9,27 @@ struct ContentView: View {
             if store.isUnlocked { MemoListView(store: store) }
             else { UnlockView(store: store) }
         }
+        // inactive 只遮挡快照；权限弹窗可能导致短暂 inactive，不能因此把相机流程误锁。
         .overlay {
             if scenePhase != .active {
                 Color(.systemBackground).ignoresSafeArea()
                     .overlay { Label(L10n.text(.privacyCovered), systemImage: "lock.fill") }
             }
         }
+        // 真正进入后台才清理会话，返回前台必须再次输入主密码。
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { store.lock() }
         }
     }
 }
 
+/// 认证页同时处理首次创建与已有库解锁；密码只保留在本次输入/提交过程中。
 private struct UnlockView: View {
     let store: MemoStore
     @State private var password = ""
     @State private var confirmation = ""
     @State private var error: String?
+    // 标题跟随系统动态字体；图标按可用宽度的 75% 保持正方形，页面可滚动。
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 44
     private var actionTitle: String { L10n.text(store.exists ? .unlock : .createVault) }
     var body: some View {
@@ -89,6 +94,7 @@ private struct UnlockView: View {
             .background(Color(.systemGroupedBackground))
         }
     }
+    /// 初次创建才检查确认密码；提交后立即清空输入框，忙碌状态防止重复解密。
     private func unlock() {
         guard !store.isBusy, !password.isEmpty else { return }
         if !store.exists {
@@ -105,20 +111,24 @@ private struct UnlockView: View {
     }
 }
 
+/// 使用互斥的 sheet 路由，避免文字编辑和图片导入同时呈现。
 private enum MemoSheet: String, Identifiable {
     case text, photo
     var id: String { rawValue }
 }
 
+/// 普通浏览、全文/标签搜索与多选删除共用列表；选择状态不改变资料库本身。
 private struct MemoListView: View {
     let store: MemoStore
     @State private var query = ""
     @State private var searchScope = MemoSearchScope.all
     @State private var sheet: MemoSheet?
     @State private var selection = MemoSelection()
+    // 打开确认框时冻结待删 ID，执行时再与可见集合取交集，防止误删隐藏记录。
     @State private var pendingDeletion = Set<UUID>()
     @State private var confirmDeletion = false
     @State private var deletionError: String?
+    /// 搜索只作用于已解锁的内存文档，不写入磁盘索引或变更时间戳。
     private var results: [Memo] { Memo.search(store.memos, query: query, scope: searchScope) }
     private var visibleIDs: Set<UUID> { Set(results.map(\.id)) }
 
@@ -186,6 +196,7 @@ private struct MemoListView: View {
                 case .photo: PhotoMemoView(store: store)
                 }
             }
+            // 任何导致结果变化的动作都要修剪选择，删除按钮数量始终对应可见项目。
             .onChange(of: visibleIDs) { _, ids in selection.retainVisible(ids) }
             .onChange(of: query) { _, _ in selection.retainVisible(visibleIDs) }
             .onChange(of: searchScope) { _, _ in selection.retainVisible(visibleIDs) }
@@ -200,6 +211,7 @@ private struct MemoListView: View {
             } message: { Text(deletionError ?? "") }
         }
     }
+    /// 多选时提供全选操作，普通模式复用与开始页同尺寸的锁定按钮。
     @ViewBuilder private var leadingAction: some View {
         if selection.isSelecting {
             Button(L10n.text(selection.ids == visibleIDs && !visibleIDs.isEmpty ? .deselectAllMemos : .selectAllMemos)) {
@@ -209,6 +221,7 @@ private struct MemoListView: View {
             VaultActionButton(symbol: "lock.fill", title: L10n.text(.lock)) { store.lock() }
         }
     }
+    /// 只由确认框的删除动作调用；写入成功后退出选择，失败保留选择以便重试。
     private func deleteConfirmed() {
         do {
             try store.delete(ids: pendingDeletion.intersection(visibleIDs))
@@ -219,6 +232,7 @@ private struct MemoListView: View {
     }
 }
 
+/// 统一普通行与选择行的内容展示，避免两种模式出现不同的摘要或标签。
 private struct MemoRow: View {
     let memo: Memo
     var body: some View {
@@ -234,6 +248,7 @@ private struct MemoRow: View {
     }
 }
 
+/// 通过稳定 ID 读取最新文档；编辑保存后详情随共享存储刷新，附件以独立全屏页浏览。
 private struct MemoDetailView: View {
     let store: MemoStore
     let id: UUID
@@ -271,6 +286,7 @@ private struct MemoDetailView: View {
     }
 }
 
+/// 编辑器保留原始值快照；取消可放弃修改，保存时复制原文档以保留来源、附件和身份。
 private struct MemoEditorView: View {
     let store: MemoStore
     let original: Memo
@@ -286,6 +302,7 @@ private struct MemoEditorView: View {
         _tagDraft = State(initialValue: TagDraft(existing: original.resolvedTags, rejectedKeys: original.rejectedTagKeys ?? []))
         _title = State(initialValue: original.title); _text = State(initialValue: original.body)
     }
+    /// 标签勾选、拒选和未提交输入也属于未保存变更，不能只比较正文。
     private var changed: Bool { title != original.title || text != original.body || tagDraft.selected != original.resolvedTags || !tagDraft.pending.isEmpty || tagDraft.excluded != Set(original.rejectedTagKeys ?? []) }
     var body: some View {
         NavigationStack {
@@ -318,7 +335,7 @@ private struct MemoEditorView: View {
                 Button(L10n.text(.keepEditing), role: .cancel) { }
             }
             .onChange(of: scenePhase) { _, phase in
-                // Save synchronously on inactive before the root locks on background.
+                // 在根页面 background 锁定前，利用 inactive 阶段同步尝试保存非空修改。
                 if phase == .inactive, changed {
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { save(close: false) }
                     else { store.notice = L10n.text(.emptyChangesNotice) }
@@ -326,6 +343,8 @@ private struct MemoEditorView: View {
             }
         }
     }
+    /// 先提交手动标签，再保存当前正文对应的候选；时间戳完全交给存储层维护。
+    /// 自动保存失败需保留用户可见提示，不能把失败误报为已保存。
     private func save(close: Bool = true) {
         guard tagDraft.commitPending() else {
             if !close { store.notice = L10n.text(.tagTooLong) }
@@ -345,6 +364,7 @@ private struct MemoEditorView: View {
     }
 }
 
+/// 统一主密码和确认密码输入外观，使用动态系统颜色兼容浅色与深色模式。
 private struct VaultPasswordFieldStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
